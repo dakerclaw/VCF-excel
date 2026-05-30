@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>联系人格式转换工具</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+/* ─── 重置 & 基础 ─────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  background: #f0f2f5;
+  min-height: 100vh;
+  color: #333;
+}
+.page { max-width: 900px; margin: 0 auto; padding: 28px 16px 48px; }
+
+/* ─── 顶部标题 ────────────────────────────────────────── */
+.header { margin-bottom: 20px; }
+.header h1 { font-size: 20px; font-weight: 700; color: #1a1a2e; }
+.header p  { font-size: 13px; color: #999; margin-top: 4px; }
+
+/* ─── Tab 切换 ────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  background: #fff;
+  border-radius: 12px;
+  padding: 6px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 6px rgba(0,0,0,.07);
+  gap: 4px;
+}
+.tab-btn {
+  flex: 1;
+  padding: 11px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .18s;
+  background: transparent;
+  color: #777;
+}
+.tab-btn:hover { background: #f4f5fb; color: #444; }
+.tab-btn.active {
+  background: linear-gradient(135deg, #4f6ef7, #6c5ce7);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(79,110,247,.3);
+}
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ─── 卡片 ────────────────────────────────────────────── */
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 5px rgba(0,0,0,.06);
+}
+.card-title {
+  font-size: 14px; font-weight: 700; color: #444;
+  margin-bottom: 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.badge {
+  font-size: 11px; font-weight: 600; padding: 2px 8px;
+  border-radius: 20px; background: #e8f0fe; color: #4f6ef7;
+}
+
+/* ─── 拖放区 ──────────────────────────────────────────── */
+.drop-zone {
+  border: 2px dashed #c0c8d8;
+  border-radius: 10px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all .2s;
+  background: #f8faff;
+  margin-bottom: 14px;
+}
+.drop-zone:hover, .drop-zone.drag-over { border-color: #4f6ef7; background: #eef3ff; }
+.drop-zone .drop-icon { font-size: 38px; margin-bottom: 10px; }
+.drop-zone .drop-title { font-size: 15px; font-weight: 600; color: #555; margin-bottom: 5px; }
+.drop-zone .drop-hint  { font-size: 12px; color: #bbb; }
+.drop-zone input[type="file"] { display: none; }
+
+/* ─── 状态条 ──────────────────────────────────────────── */
+.status {
+  padding: 10px 16px; border-radius: 8px;
+  font-size: 13px; margin-bottom: 12px; display: none;
+}
+.status.info  { background: #e8f0fe; color: #1a56db; display: block; }
+.status.ok    { background: #e6f4ea; color: #1e7e34; display: block; }
+.status.error { background: #fce8e6; color: #c5221f; display: block; }
+
+/* ─── 统计行 ──────────────────────────────────────────── */
+.stats {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  margin-bottom: 14px;
+}
+.stat-box {
+  background: #f5f7fa; border-radius: 10px;
+  padding: 11px 18px; text-align: center; min-width: 80px;
+}
+.stat-num   { font-size: 22px; font-weight: 700; color: #4f6ef7; }
+.stat-label { font-size: 11px; color: #999; margin-top: 2px; }
+
+/* ─── 字段标签（VCF→XLS） ────────────────────────────── */
+.fields-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.field-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border: 1.5px solid #dce3f0;
+  border-radius: 20px; font-size: 13px; cursor: pointer;
+  transition: all .15s; user-select: none;
+  background: #fff; color: #444;
+}
+.field-tag.selected { background: #4f6ef7; border-color: #4f6ef7; color: #fff; }
+.field-tag input { display: none; }
+
+/* ─── 字段映射（XLS→VCF） ────────────────────────────── */
+.mapping-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+.mapping-row { display: flex; align-items: center; gap: 8px; }
+.field-label { font-size: 12px; color: #666; width: 72px; flex-shrink: 0; }
+.field-label .req { color: #e55; font-size: 10px; }
+select {
+  flex: 1; font-size: 12px; padding: 5px 8px;
+  border: 1px solid #dde; border-radius: 6px;
+  background: #fafbff; color: #333; outline: none; cursor: pointer;
+}
+select:focus { border-color: #4f6ef7; }
+
+/* ─── 导出选项 ────────────────────────────────────────── */
+.options-row { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+.opt-group { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.opt-group input[type=checkbox] { cursor: pointer; }
+
+/* ─── 预览表格 ────────────────────────────────────────── */
+.table-wrap {
+  overflow-x: auto; max-height: 300px;
+  border-radius: 8px; border: 1px solid #eef;
+}
+table { border-collapse: collapse; width: 100%; font-size: 12px; }
+thead th {
+  background: #f4f6fb; padding: 8px 12px;
+  text-align: left; font-weight: 600; color: #555;
+  position: sticky; top: 0; border-bottom: 1px solid #e8eaf0;
+  white-space: nowrap;
+}
+tbody td {
+  padding: 7px 12px; border-bottom: 1px solid #f0f0f5;
+  color: #444; max-width: 200px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: #f8f9ff; }
+
+/* ─── 按钮 ────────────────────────────────────────────── */
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+button {
+  padding: 10px 22px; font-size: 14px; font-weight: 600;
+  border: none; border-radius: 8px; cursor: pointer; transition: all .15s;
+}
+.btn-primary {
+  background: linear-gradient(135deg, #4f6ef7, #6c5ce7);
+  color: #fff; box-shadow: 0 3px 10px rgba(79,110,247,.3);
+}
+.btn-primary:hover { opacity: .88; transform: translateY(-1px); }
+.btn-primary:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.btn-secondary { background: #f0f2f5; color: #555; }
+.btn-secondary:hover { background: #e4e7ef; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <h1>📇 联系人格式转换工具</h1>
+    <p>VCF ⇆ Excel 双向转换，支持中英文，自动识别编码</p>
+  </div>
+
+  <!-- ── Tab 按钮 ── -->
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="v2x">📋 VCF → Excel</button>
+    <button class="tab-btn"        data-tab="x2v">📊 Excel → VCF</button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════
+       面板 A：VCF → Excel
+  ══════════════════════════════════════════════════ -->
+  <div id="panel-v2x" class="tab-panel active">
+
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="drop-zone" id="v2x-drop">
+        <div class="drop-icon">📁</div>
+        <div class="drop-title">拖放 VCF 文件到此处，或点击选择</div>
+        <div class="drop-hint">支持单个或多个 .vcf · vCard 2.1 / 3.0 / 4.0</div>
+        <input type="file" id="v2x-input" accept=".vcf,text/vcard" multiple>
+      </div>
+    </div>
+
+    <div class="status" id="v2x-status"></div>
+
+    <div class="stats" id="v2x-stats" style="display:none">
+      <div class="stat-box"><div class="stat-num" id="v2x-total">0</div><div class="stat-label">联系人</div></div>
+      <div class="stat-box"><div class="stat-num" id="v2x-phone">0</div><div class="stat-label">含电话</div></div>
+      <div class="stat-box"><div class="stat-num" id="v2x-email">0</div><div class="stat-label">含邮箱</div></div>
+      <div class="stat-box"><div class="stat-num" id="v2x-comp">0</div> <div class="stat-label">含公司</div></div>
+    </div>
+
+    <div class="card" id="v2x-fields-card" style="display:none">
+      <div class="card-title">✅ 选择导出字段</div>
+      <div class="fields-grid" id="v2x-fields"></div>
+    </div>
+
+    <div class="card" id="v2x-preview-card" style="display:none">
+      <div class="card-title">👁 预览 <span class="badge" id="v2x-preview-badge">前10条</span></div>
+      <div class="table-wrap"><table id="v2x-table"></table></div>
+    </div>
+
+    <div class="btn-row" id="v2x-actions" style="display:none">
+      <button class="btn-primary"   id="v2x-export">⬇ 导出 Excel</button>
+      <button class="btn-secondary" id="v2x-reset">重新选择</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════
+       面板 B：Excel → VCF
+  ══════════════════════════════════════════════════ -->
+  <div id="panel-x2v" class="tab-panel">
+
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="drop-zone" id="x2v-drop">
+        <div class="drop-icon">📊</div>
+        <div class="drop-title">拖放 Excel/CSV 文件到此处，或点击选择</div>
+        <div class="drop-hint">支持 .xlsx · .xls · .csv</div>
+        <input type="file" id="x2v-input" accept=".xlsx,.xls,.csv">
+      </div>
+    </div>
+
+    <div class="status" id="x2v-status"></div>
+
+    <div id="x2v-main" style="display:none">
+
+      <div class="card">
+        <div class="card-title">🔗 字段映射 <span class="badge" id="x2v-col-badge">0 列</span></div>
+        <div class="mapping-grid" id="x2v-mapping"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⚙️ 导出选项</div>
+        <div class="options-row">
+          <div class="opt-group">
+            <input type="checkbox" id="x2v-skip" checked>
+            <label for="x2v-skip">跳过无姓名且无电话的行</label>
+          </div>
+          <div class="opt-group">
+            <input type="checkbox" id="x2v-cc">
+            <label for="x2v-cc">电话补 +86 国际区号</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats" id="x2v-stats" style="display:none">
+        <div class="stat-box"><div class="stat-num" id="x2v-total">0</div><div class="stat-label">联系人</div></div>
+        <div class="stat-box"><div class="stat-num" id="x2v-phone">0</div><div class="stat-label">含电话</div></div>
+        <div class="stat-box"><div class="stat-num" id="x2v-email">0</div><div class="stat-label">含邮箱</div></div>
+        <div class="stat-box"><div class="stat-num" id="x2v-comp">0</div> <div class="stat-label">含公司</div></div>
+      </div>
+
+      <div class="card" id="x2v-preview-card">
+        <div class="card-title">👁 数据预览 <span class="badge" id="x2v-preview-badge">前20行</span></div>
+        <div class="table-wrap" id="x2v-preview-wrap"></div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-primary"   id="x2v-export">📥 导出 VCF</button>
+        <button class="btn-secondary" id="x2v-reset">重新选择</button>
+      </div>
+    </div>
+  </div>
+</div><!-- /page -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  公共工具：编码检测 + 文件读取
+// ═══════════════════════════════════════════════════════════════
+
+function detectEncoding(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) return 'utf-8';
+  if (bytes[0] === 0xFF && bytes[1] === 0xFE) return 'utf-16le';
+  if (bytes[0] === 0xFE && bytes[1] === 0xFF) return 'utf-16be';
+  const ascii = [];
+  const limit = Math.min(4096, bytes.length);
+  for (let i = 0; i < limit; i++) ascii.push(bytes[i] < 128 ? String.fromCharCode(bytes[i]) : '?');
+  const probe = ascii.join('').toUpperCase();
+  if (probe.includes('CHARSET=UTF-8')) return 'utf-8';
+  if (/CHARSET=GB|CHARSET=BIG5|CHARSET=GBK/.test(probe)) return 'gbk';
+  if (/ENCODING=QUOTED-PRINTABLE/.test(probe) && bytes.some(b => b > 0x7F)) return 'gbk';
+  try { new TextDecoder('utf-8', { fatal: true }).decode(buffer); return 'utf-8'; }
+  catch(e) { return 'gbk'; }
+}
+
+function readFileAsText(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onerror = () => resolve({ text: '', encoding: 'utf-8' });
+    reader.onload = e => {
+      const buffer = e.target.result;
+      let encoding = 'utf-8';
+      try { encoding = detectEncoding(buffer); } catch(_) {}
+      let text = '';
+      try { text = new TextDecoder(encoding, { fatal: false }).decode(buffer); }
+      catch(_) { try { text = new TextDecoder('utf-8', { fatal: false }).decode(buffer); } catch(_2) {} }
+      resolve({ text, encoding });
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function readFileAsBuffer(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = e => resolve(e.target.result);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Tab 切换
+// ═══════════════════════════════════════════════════════════════
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  面板 A：VCF → Excel
+// ═══════════════════════════════════════════════════════════════
+
+const V2X_FIELD_DEFS = [
+  { key: 'name',      label: '姓名',      always: true  },
+  { key: 'firstName', label: '名',        always: false },
+  { key: 'lastName',  label: '姓',        always: false },
+  { key: 'phone',     label: '电话（主）', always: true  },
+  { key: 'phoneAll',  label: '所有电话',  always: false },
+  { key: 'email',     label: '邮箱（主）', always: true  },
+  { key: 'emailAll',  label: '所有邮箱',  always: false },
+  { key: 'company',   label: '公司',      always: true  },
+  { key: 'title',     label: '职位',      always: true  },
+  { key: 'address',   label: '地址',      always: false },
+  { key: 'note',      label: '备注',      always: false },
+  { key: 'birthday',  label: '生日',      always: false },
+  { key: 'url',       label: '网址',      always: false },
+  { key: 'wechat',    label: '微信',      always: false },
+];
+
+let v2xContacts = [];
+let v2xSelected = new Set(['name','phone','email','company','title']);
+
+function v2xShowStatus(msg, type) {
+  const el = document.getElementById('v2x-status');
+  el.className = 'status ' + type; el.textContent = msg;
+}
+
+function decodeQP(str, charset) {
+  str = str.replace(/=\r?\n/g, '');
+  const bytes = [];
+  let i = 0;
+  while (i < str.length) {
+    if (str[i] === '=' && i + 2 < str.length && /^[0-9A-Fa-f]{2}$/.test(str.slice(i+1,i+3))) {
+      bytes.push(parseInt(str.slice(i+1,i+3), 16)); i += 3;
+    } else {
+      bytes.push(str.charCodeAt(i) & 0xFF); i++;
+    }
+  }
+  try { return new TextDecoder(charset || 'utf-8', { fatal: false }).decode(new Uint8Array(bytes)); }
+  catch(e) { return str; }
+}
+
+function decodeLine(line, fileEncoding) {
+  const colonIdx = line.indexOf(':');
+  if (colonIdx < 0) return '';
+  const paramPart = line.slice(0, colonIdx).toUpperCase();
+  const valuePart = line.slice(colonIdx + 1);
+  let charset = fileEncoding || 'utf-8';
+  const csMatch = paramPart.match(/CHARSET=([A-Z0-9\-_]+)/);
+  if (csMatch) {
+    const cs = csMatch[1].toLowerCase();
+    if (cs === 'utf-8') charset = 'utf-8';
+    else if (/gb/.test(cs) || cs === 'big5') charset = 'gbk';
+    else charset = cs;
+  }
+  if (/ENCODING=(?:BASE64|B)\b/.test(paramPart)) {
+    try {
+      const raw = atob(valuePart.trim());
+      const bytes = Uint8Array.from(raw, c => c.charCodeAt(0));
+      return new TextDecoder(charset, { fatal: false }).decode(bytes);
+    } catch(e) { return ''; }
+  }
+  if (/ENCODING=QUOTED-PRINTABLE/.test(paramPart)) return decodeQP(valuePart, charset);
+  return valuePart.trim();
+}
+
+function parseVCard(block, fileEncoding) {
+  block = block.replace(/=\r?\n/g, '').replace(/\r?\n[ \t]/g, '');
+  const lines = block.split(/\r?\n/).filter(l => l.trim());
+  const c = { name:'', firstName:'', lastName:'', phone:'', phoneAll:'', email:'', emailAll:'',
+               company:'', title:'', address:'', note:'', birthday:'', url:'', wechat:'',
+               _phones:[], _emails:[] };
+  for (const raw of lines) {
+    const up = raw.toUpperCase();
+    if (/^FN[;:]/.test(up))    { c.name    = decodeLine(raw, fileEncoding).trim(); continue; }
+    if (/^N[;:]/.test(up))     { const v = decodeLine(raw, fileEncoding), p = v.split(';');
+                                  c.lastName = (p[0]||'').trim(); c.firstName = (p[1]||'').trim();
+                                  if (!c.name) c.name = (c.lastName+c.firstName).trim(); continue; }
+    if (/^TEL[;:]/.test(up))   { const n = decodeLine(raw, fileEncoding).replace(/\s/g,'').trim(); if (n) c._phones.push(n); continue; }
+    if (/^EMAIL[;:]/.test(up)) { const e = decodeLine(raw, fileEncoding).trim(); if (e) c._emails.push(e); continue; }
+    if (/^ORG[;:]/.test(up))   { c.company = decodeLine(raw, fileEncoding).split(';')[0].trim(); continue; }
+    if (/^TITLE[;:]/.test(up)) { c.title   = decodeLine(raw, fileEncoding).trim(); continue; }
+    if (/^ROLE[;:]/.test(up) && !c.title) { c.title = decodeLine(raw, fileEncoding).trim(); continue; }
+    if (/^ADR[;:]/.test(up))   { c.address  = decodeLine(raw, fileEncoding).split(';').map(s=>s.trim()).filter(Boolean).join(' '); continue; }
+    if (/^NOTE[;:]/.test(up))  { c.note     = decodeLine(raw, fileEncoding).trim(); continue; }
+    if (/^BDAY[;:]/.test(up))  { c.birthday = decodeLine(raw, fileEncoding).trim(); continue; }
+    if (/^URL[;:]/.test(up))   { c.url      = decodeLine(raw, fileEncoding).trim(); continue; }
+    if (/^X-WECHAT[;:]/.test(up)) { c.wechat = decodeLine(raw, fileEncoding).trim(); continue; }
+    if (/^IMPP[;:]/.test(up))  { const v = decodeLine(raw, fileEncoding).trim(); if (/wechat/i.test(raw)) c.wechat = v.replace(/^wechat:/i,''); continue; }
+  }
+  c.phone    = c._phones[0] || '';
+  c.phoneAll = c._phones.join(' | ');
+  c.email    = c._emails[0] || '';
+  c.emailAll = c._emails.join(' | ');
+  return c;
+}
+
+function parseVCF(text, enc) {
+  const matches = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').match(/BEGIN:VCARD[\s\S]*?END:VCARD/gi);
+  if (!matches) return [];
+  return matches.map(b => parseVCard(b, enc)).filter(c => c.name || c.phone || c.email);
+}
+
+function v2xBuildFields() {
+  const active = new Set();
+  v2xContacts.forEach(c => V2X_FIELD_DEFS.forEach(f => { if (c[f.key] && String(c[f.key]).trim()) active.add(f.key); }));
+  const grid = document.getElementById('v2x-fields');
+  grid.innerHTML = '';
+  V2X_FIELD_DEFS.forEach(f => {
+    if (!active.has(f.key) && !f.always) return;
+    const tag = document.createElement('label');
+    tag.className = 'field-tag' + (v2xSelected.has(f.key) ? ' selected' : '');
+    tag.textContent = f.label;
+    tag.addEventListener('click', () => {
+      v2xSelected.has(f.key) ? v2xSelected.delete(f.key) : v2xSelected.add(f.key);
+      tag.classList.toggle('selected', v2xSelected.has(f.key));
+      v2xRenderPreview();
+    });
+    grid.appendChild(tag);
+  });
+}
+
+function v2xRenderPreview() {
+  const fields = V2X_FIELD_DEFS.filter(f => v2xSelected.has(f.key));
+  const rows = v2xContacts.slice(0, 10);
+  let html = '<thead><tr>' + fields.map(f => `<th>${esc(f.label)}</th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach(c => {
+    html += '<tr>' + fields.map(f => `<td title="${esc(c[f.key]||'')}">${esc(c[f.key]||'')}</td>`).join('') + '</tr>';
+  });
+  html += '</tbody>';
+  document.getElementById('v2x-table').innerHTML = html;
+  document.getElementById('v2x-preview-badge').textContent = `前${rows.length}条`;
+}
+
+function v2xProcessFiles(files) {
+  const vcfFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.vcf') || f.type === 'text/vcard');
+  if (!vcfFiles.length) { v2xShowStatus('未找到 .vcf 文件', 'error'); return; }
+  v2xShowStatus(`正在读取 ${vcfFiles.length} 个文件…`, 'info');
+  v2xContacts = [];
+  Promise.all(vcfFiles.map(readFileAsText)).then(results => {
+    results.forEach(({ text, encoding }) => {
+      try { v2xContacts = v2xContacts.concat(parseVCF(text, encoding)); }
+      catch(e) { console.error(e); }
+    });
+    if (!v2xContacts.length) { v2xShowStatus('未找到有效联系人，请检查文件', 'error'); return; }
+    v2xShowStatus(`✅ 解析 ${v2xContacts.length} 个联系人（${vcfFiles.length} 个文件）`, 'ok');
+    // 统计
+    document.getElementById('v2x-total').textContent = v2xContacts.length;
+    document.getElementById('v2x-phone').textContent = v2xContacts.filter(c=>c.phone).length;
+    document.getElementById('v2x-email').textContent = v2xContacts.filter(c=>c.email).length;
+    document.getElementById('v2x-comp').textContent  = v2xContacts.filter(c=>c.company).length;
+    document.getElementById('v2x-stats').style.display = 'flex';
+    v2xBuildFields();
+    document.getElementById('v2x-fields-card').style.display = '';
+    document.getElementById('v2x-preview-card').style.display = '';
+    document.getElementById('v2x-actions').style.display = 'flex';
+    v2xRenderPreview();
+  }).catch(err => v2xShowStatus('读取失败：' + (err?.message || '未知错误'), 'error'));
+}
+
+function v2xExport() {
+  if (!v2xContacts.length) return;
+  const fields = V2X_FIELD_DEFS.filter(f => v2xSelected.has(f.key));
+  const header = fields.map(f => f.label);
+  const rows = v2xContacts.map(c => fields.map(f => c[f.key] || ''));
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  ws['!cols'] = fields.map(f => ({ wch: Math.min(Math.max(f.label.length*2, 8, ...v2xContacts.map(c=>String(c[f.key]||'').length)), 40) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '联系人');
+  const ts = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  XLSX.writeFile(wb, `联系人_${ts}.xlsx`);
+}
+
+function v2xReset() {
+  v2xContacts = [];
+  v2xSelected = new Set(['name','phone','email','company','title']);
+  ['v2x-status','v2x-stats','v2x-fields-card','v2x-preview-card','v2x-actions'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.className === 'status' ? el.className='status' : el.style.display='none'; }
+  });
+  document.getElementById('v2x-status').className = 'status';
+  document.getElementById('v2x-stats').style.display = 'none';
+  document.getElementById('v2x-fields-card').style.display = 'none';
+  document.getElementById('v2x-preview-card').style.display = 'none';
+  document.getElementById('v2x-actions').style.display = 'none';
+  document.getElementById('v2x-input').value = '';
+}
+
+// 绑定事件 - VCF→Excel
+(function(){
+  const drop = document.getElementById('v2x-drop');
+  const inp  = document.getElementById('v2x-input');
+  drop.addEventListener('click', () => inp.click());
+  inp.addEventListener('change', e => { if(e.target.files.length) v2xProcessFiles(e.target.files); });
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag-over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('drag-over'); v2xProcessFiles(e.dataTransfer.files); });
+  document.getElementById('v2x-export').addEventListener('click', v2xExport);
+  document.getElementById('v2x-reset').addEventListener('click', v2xReset);
+})();
+
+// ═══════════════════════════════════════════════════════════════
+//  面板 B：Excel → VCF
+// ═══════════════════════════════════════════════════════════════
+
+const X2V_FIELDS = [
+  { key:'name',      label:'姓名',  req:true  },
+  { key:'lastName',  label:'姓',    req:false },
+  { key:'firstName', label:'名',    req:false },
+  { key:'phone',     label:'电话①', req:false },
+  { key:'phone2',    label:'电话②', req:false },
+  { key:'phone3',    label:'电话③', req:false },
+  { key:'email',     label:'邮箱',  req:false },
+  { key:'company',   label:'公司',  req:false },
+  { key:'title',     label:'职位',  req:false },
+  { key:'address',   label:'地址',  req:false },
+  { key:'note',      label:'备注',  req:false },
+  { key:'birthday',  label:'生日',  req:false },
+  { key:'url',       label:'网址',  req:false },
+  { key:'wechat',    label:'微信',  req:false },
+];
+
+const X2V_AUTO = {
+  name:      ['姓名','名称','联系人','name','fullname','full name','contact'],
+  lastName:  ['姓','姓氏','lastname','last name','family name'],
+  firstName: ['名','名字','firstname','first name','given name'],
+  phone:     ['电话','手机','联系电话','手机号','手机号码','phone','mobile','tel','电话①','电话1'],
+  phone2:    ['电话2','电话②','手机2','phone2','mobile2','tel2'],
+  phone3:    ['电话3','电话③','手机3','phone3','mobile3'],
+  email:     ['邮箱','邮件','电子邮件','email','mail','e-mail'],
+  company:   ['公司','单位','企业','公司名称','company','organization','org'],
+  title:     ['职位','职称','头衔','岗位','title','position','job title'],
+  address:   ['地址','住址','通讯地址','address','addr'],
+  note:      ['备注','说明','描述','note','notes','remark','desc'],
+  birthday:  ['生日','出生日期','birthday','birth','dob'],
+  url:       ['网址','网站','url','website','homepage'],
+  wechat:    ['微信','微信号','wechat','weixin'],
+};
+
+let x2vData = [], x2vHeaders = [];
+
+function x2vShowStatus(msg, type) {
+  const el = document.getElementById('x2v-status');
+  el.className = 'status ' + type; el.textContent = msg;
+}
+
+function x2vGuess(header) {
+  const h = header.toLowerCase().trim();
+  for (const [key, kws] of Object.entries(X2V_AUTO))
+    for (const kw of kws) if (h === kw.toLowerCase() || h.includes(kw.toLowerCase())) return key;
+  return '';
+}
+
+function x2vBuildMapping() {
+  document.getElementById('x2v-col-badge').textContent = x2vHeaders.length + ' 列';
+  const grid = document.getElementById('x2v-mapping');
+  grid.innerHTML = '';
+  const used = {};
+  X2V_FIELDS.forEach(field => {
+    const row = document.createElement('div'); row.className = 'mapping-row';
+    const lbl = document.createElement('div'); lbl.className = 'field-label';
+    lbl.innerHTML = esc(field.label) + (field.req ? ' <span class="req">必填</span>' : '');
+    const sel = document.createElement('select'); sel.id = 'x2v_map_' + field.key;
+    sel.innerHTML = '<option value="">— 不导入 —</option>';
+    x2vHeaders.forEach(h => { const o = document.createElement('option'); o.value = h; o.textContent = h; sel.appendChild(o); });
+    const guessed = x2vHeaders.find(h => x2vGuess(h) === field.key);
+    if (guessed && !used[guessed]) { sel.value = guessed; used[guessed] = true; }
+    row.appendChild(lbl); row.appendChild(sel); grid.appendChild(row);
+  });
+}
+
+function x2vBuildPreview() {
+  const rows = x2vData.slice(0, 20);
+  let html = '<table><thead><tr>' + x2vHeaders.map(h=>`<th>${esc(h)}</th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach(row => {
+    html += '<tr>' + x2vHeaders.map(h=>`<td title="${esc(String(row[h]||''))}">${esc(String(row[h]||''))}</td>`).join('') + '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('x2v-preview-wrap').innerHTML = html;
+  document.getElementById('x2v-preview-badge').textContent = `前${rows.length}行`;
+}
+
+function x2vLoadFile(file) {
+  x2vShowStatus('正在读取…', 'info');
+  readFileAsBuffer(file).then(buffer => {
+    try {
+      let wb;
+      if (file.name.toLowerCase().endsWith('.csv')) {
+        const bytes = new Uint8Array(buffer);
+        let enc = 'utf-8';
+        if (!(bytes[0]===0xEF && bytes[1]===0xBB && bytes[2]===0xBF)) {
+          try { new TextDecoder('utf-8',{fatal:true}).decode(buffer); }
+          catch(e) { enc = 'gbk'; }
+        }
+        wb = XLSX.read(new TextDecoder(enc,{fatal:false}).decode(buffer), { type:'string' });
+      } else {
+        wb = XLSX.read(buffer, { type:'array' });
+      }
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const json  = XLSX.utils.sheet_to_json(sheet, { defval:'', raw:false });
+      if (!json.length) { x2vShowStatus('文件为空或无法识别', 'error'); return; }
+      x2vHeaders = Object.keys(json[0]);
+      x2vData    = json;
+      x2vShowStatus(`✅ 读取成功：${json.length} 行 × ${x2vHeaders.length} 列`, 'ok');
+      x2vBuildMapping();
+      x2vBuildPreview();
+      document.getElementById('x2v-main').style.display = '';
+    } catch(err) { x2vShowStatus('读取失败：' + err.message, 'error'); }
+  }).catch(err => x2vShowStatus('读取失败：' + (err?.message||'未知'), 'error'));
+}
+
+function x2vGetMap() {
+  const map = {};
+  X2V_FIELDS.forEach(f => { const sel = document.getElementById('x2v_map_'+f.key); if (sel?.value) map[f.key] = sel.value; });
+  return map;
+}
+
+function encodeQP_UTF8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let result = '';
+  bytes.forEach(b => { result += (b>=0x21 && b<=0x7E && b!==0x3D) ? String.fromCharCode(b) : '='+b.toString(16).toUpperCase().padStart(2,'0'); });
+  const parts = [];
+  for (let i = 0; i < result.length; i += 73) parts.push(result.slice(i, i+73));
+  return parts.join('=\r\n ');
+}
+
+function buildVCard(row, map, opts) {
+  const get = k => map[k] ? String(row[map[k]]||'').trim() : '';
+  let name = get('name');
+  const ln = get('lastName'), fn = get('firstName');
+  if (!name && (ln||fn)) name = ln+fn;
+  const phones = [get('phone'),get('phone2'),get('phone3')].filter(Boolean);
+  const email=get('email'), company=get('company'), title=get('title'),
+        address=get('address'), note=get('note'), birthday=get('birthday'),
+        url=get('url'), wechat=get('wechat');
+  if (opts.skipEmpty && !name && !phones.length) return '';
+
+  const fmtPhone = p => {
+    if (!opts.cc) return p;
+    const d = p.replace(/\D/g,'');
+    if (d.startsWith('86')||d.startsWith('+')) return p;
+    if (d.length===11 && d.startsWith('1')) return '+86'+d;
+    return p;
+  };
+  const qpLine = (tag, val) => {
+    if (!val) return '';
+    if (/[^\x00-\x7F]/.test(val)) return `${tag};CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:${encodeQP_UTF8(val)}`;
+    return `${tag}:${val}`;
+  };
+
+  const lines = ['BEGIN:VCARD','VERSION:3.0'];
+  if (name) {
+    lines.push(qpLine('FN', name));
+    const lnx = ln || (name.length>1 && /[\u4e00-\u9fa5]/.test(name) ? name[0] : '');
+    const fnx = fn || (lnx ? name.slice(1) : name);
+    if (/[^\x00-\x7F]/.test(lnx+fnx)) lines.push(`N;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:${encodeQP_UTF8(lnx)};${encodeQP_UTF8(fnx)};;;`);
+    else lines.push(`N:${lnx};${fnx};;;`);
+  }
+  phones.forEach((p,i) => lines.push(`TEL;TYPE=${i===0?'CELL':'VOICE'}:${fmtPhone(p)}`));
+  if (email)   lines.push(`EMAIL:${email}`);
+  if (company) lines.push(qpLine('ORG', company));
+  if (title)   lines.push(qpLine('TITLE', title));
+  if (address) lines.push(qpLine('ADR;TYPE=HOME', `;;${address};;;;`));
+  if (note)    lines.push(qpLine('NOTE', note));
+  if (birthday) {
+    const bd = birthday.replace(/[-/年月]/g,'').replace(/日/g,'').replace(/\s/g,'').slice(0,8);
+    lines.push(`BDAY:${bd.length>=8?bd:birthday}`);
+  }
+  if (url)    lines.push(`URL:${url}`);
+  if (wechat) lines.push(`X-WECHAT:${wechat}`);
+  lines.push('END:VCARD');
+  return lines.join('\r\n') + '\r\n';
+}
+
+function x2vExport() {
+  const map = x2vGetMap();
+  if (!Object.keys(map).length) { x2vShowStatus('请至少映射一个字段', 'error'); return; }
+  const opts = {
+    skipEmpty: document.getElementById('x2v-skip').checked,
+    cc:        document.getElementById('x2v-cc').checked,
+  };
+  const vcards = x2vData.map(row => buildVCard(row, map, opts)).filter(Boolean);
+  if (!vcards.length) { x2vShowStatus('无可导出数据', 'error'); return; }
+
+  // 统计
+  const cntPhone = x2vData.filter(r => map.phone && String(r[map.phone]||'').trim()).length;
+  const cntEmail = x2vData.filter(r => map.email && String(r[map.email]||'').trim()).length;
+  const cntComp  = x2vData.filter(r => map.company && String(r[map.company]||'').trim()).length;
+  document.getElementById('x2v-total').textContent = vcards.length;
+  document.getElementById('x2v-phone').textContent = cntPhone;
+  document.getElementById('x2v-email').textContent = cntEmail;
+  document.getElementById('x2v-comp').textContent  = cntComp;
+  document.getElementById('x2v-stats').style.display = 'flex';
+
+  downloadBlob('\uFEFF' + vcards.join(''), 'contacts.vcf', 'text/vcard;charset=utf-8');
+  x2vShowStatus(`✅ 已导出 ${vcards.length} 个联系人 → contacts.vcf`, 'ok');
+}
+
+function x2vReset() {
+  x2vData = []; x2vHeaders = [];
+  document.getElementById('x2v-main').style.display = 'none';
+  document.getElementById('x2v-stats').style.display = 'none';
+  document.getElementById('x2v-status').className = 'status';
+  document.getElementById('x2v-input').value = '';
+}
+
+// 绑定事件 - Excel→VCF
+(function(){
+  const drop = document.getElementById('x2v-drop');
+  const inp  = document.getElementById('x2v-input');
+  drop.addEventListener('click', () => inp.click());
+  inp.addEventListener('change', e => { if(e.target.files[0]) x2vLoadFile(e.target.files[0]); });
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag-over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('drag-over'); if(e.dataTransfer.files[0]) x2vLoadFile(e.dataTransfer.files[0]); });
+  document.getElementById('x2v-export').addEventListener('click', x2vExport);
+  document.getElementById('x2v-reset').addEventListener('click', x2vReset);
+})();
+</script>
+</body>
+</html>
